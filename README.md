@@ -60,6 +60,102 @@ timestamp，使用 `software`。软件模式不会自动升级为硬件模式，
 6. 用独立硬件测量最终误差。
 7. 需要撤销时执行 `hardware restore`。
 
+## 可视化交互界面
+
+项目提供基于 Python Tkinter 的桌面控制中心，不依赖浏览器或第三方绘图库。界面
+覆盖硬件 PTP 全流程，以及软件 master/slave 的启动、停止、日志和实时曲线。
+
+### 安装 Tkinter
+
+Windows 官方 Python 安装包通常已经包含 Tcl/Tk。可以检查：
+
+```powershell
+python -m tkinter
+```
+
+Debian/Ubuntu：
+
+```bash
+sudo apt install python3-tk
+```
+
+Fedora/RHEL：
+
+```bash
+sudo dnf install python3-tkinter
+```
+
+### 启动界面
+
+普通观察模式：
+
+```bash
+python3 ptp_sync.py gui
+# 或
+python3 -m ptp_sync gui
+```
+
+Linux 上执行硬件 `apply/restore` 或软件 slave `--apply` 时，整个 GUI 进程需要
+root 权限：
+
+```bash
+sudo -E python3 ptp_sync.py gui
+```
+
+Windows 应从“管理员 PowerShell”启动：
+
+```powershell
+python ptp_sync.py gui
+```
+
+在 Wayland、远程 SSH 或无桌面服务器上，root 进程可能无权连接当前图形会话。
+这种环境应使用命令行 `hardware` 子命令，或者由管理员配置受控的图形权限提升，
+不要通过关闭 X/Wayland 访问控制来绕过安全机制。
+
+### “硬件 PTP”页
+
+填写后端、角色、网口、GM IPv4、domain、UTC offset 和可选 state file，然后
+按顺序操作：
+
+1. **Detect**：显示平台、权限、系统工具、NIC hardware timestamp 和端口检查。
+2. **Plan**：列出将写入的文件、将停止的服务和破坏性操作。
+3. **Apply**：弹出二次确认，后台执行事务化配置并等待锁定。
+4. **Status**：显示服务状态、PTP port、offset 和 servo 指标。
+5. **Restore**：确认后恢复事务快照。
+
+耗时系统命令在线程中运行，不会冻结窗口。右侧上半部分按“检查/变更/状态/指标/
+警告”展示，底部保留完整 JSON，方便复制到故障报告。GUI 不会绕过后端的权限、
+硬件能力或事务检查。Apply/Restore 事务执行期间窗口会阻止关闭，避免解释器退出
+打断提交或回滚。
+
+Windows 多个 GM 可在“GM IPv4”中用逗号、分号或空格分隔。Linux master 必须
+填写 TAI−UTC offset；Windows 只允许 slave。
+
+### “软件 PTP”页
+
+- 选择 `master` 或 `slave`，界面会自动禁用不适用字段。
+- **启动**会创建独立 Python 子进程，命令原样显示在日志第一行。
+- **停止**优先发送 `Ctrl+C/SIGINT`，让进程输出 summary 并恢复临时时钟设置；
+  3 秒仍未退出才强制结束。
+- slave 日志中的 `offset`、`filtered` 和 `delay` 会显示为实时指标。
+- 曲线保留最近 180 个样本：蓝色为原始 offset，橙色为 median-filtered offset，
+  Y 轴单位为微秒并自动缩放。
+- “应用系统时钟”只对 slave 生效，启动前会再次确认；默认关闭。
+- 可以清空日志或关闭自动滚动，运行中的采样和绘图不受影响。
+
+关闭窗口时如果软件 PTP 子进程仍在运行，GUI 会询问是否先停止进程。硬件服务由
+systemd/W32Time 持久管理，关闭 GUI 不会停止已经成功应用的硬件 PTP；需要停止
+并恢复时应执行 **Restore**。
+
+GUI 会阻止以下明显冲突：
+
+- 硬件事务运行时启动软件进程；
+- 软件进程正在调整系统时钟或占用标准端口时执行硬件 Apply/Restore；
+- 已检测到硬件 PTP active 时，启动带“应用系统时钟”或“标准端口”的软件模式。
+
+如果硬件服务是在 GUI 外部启动的，建议先点击 **Status**，让界面获取当前状态后
+再启动软件模式。
+
 ## 关键术语
 
 - **Grandmaster（GM）**：PTP 域中的最终时间源。

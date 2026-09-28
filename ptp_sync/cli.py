@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 
 from .clock import clock_identity, identity_hex, open_clock
@@ -23,8 +24,8 @@ from .transport import PtpSockets
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Software IEEE 1588v2 (PTP) two-step clock sync. "
-            "Run the master on one host and the slave on the other."
+            "PTP synchronization control for hardware-backed system services "
+            "and a Python software-timestamp fallback."
         )
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -43,14 +44,37 @@ def main(argv: list[str] | None = None) -> int:
     _add_master_args(software_sub.add_parser("master", help="run software master"))
     _add_slave_args(software_sub.add_parser("slave", help="run software slave"))
     add_hardware_parser(sub)
+    sub.add_parser("gui", help="launch the Tkinter visual control center")
     sub.add_parser("selftest", help="encode/decode and offset formula checks")
     args = parser.parse_args(argv)
     _setup_logging(args.verbose if hasattr(args, "verbose") else False)
     if args.cmd == "hardware":
         return run_hardware(args)
+    if args.cmd == "gui":
+        try:
+            from .gui import launch_gui
+        except ImportError as exc:
+            print(
+                f"Tkinter is unavailable ({exc}). On Debian/Ubuntu run: "
+                "sudo apt install python3-tk",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            return launch_gui()
+        except Exception as exc:
+            if type(exc).__name__ == "TclError":
+                print(
+                    f"Tkinter could not open a display: {exc}. "
+                    "Run the CLI on headless systems.",
+                    file=sys.stderr,
+                )
+                return 2
+            raise
     if args.cmd == "selftest":
         return _selftest()
     command = args.software_cmd if args.cmd == "software" else args.cmd
+    _install_software_signal_handlers()
     clock = open_clock()
     event_port, general_port = _ports(args)
     if command == "slave" and args.warmup > args.window:
@@ -198,6 +222,16 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def _install_software_signal_handlers() -> None:
+    if sys.platform != "win32" or not hasattr(signal, "SIGBREAK"):
+        return
+
+    def raise_keyboard_interrupt(_signum, _frame) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGBREAK, raise_keyboard_interrupt)
 
 
 def _selftest() -> int:
